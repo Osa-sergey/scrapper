@@ -65,6 +65,8 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
+      keyword-extraction:
+        condition: service_started
     networks:
       - default
 
@@ -77,8 +79,6 @@ services:
     environment:
       - GRAPHQL_URL=http://scrapping:9003/api/v1/scrapping/graph/query
       - USER_ID=1
-    depends_on:
-      - scrapping
     networks:
       - default
 

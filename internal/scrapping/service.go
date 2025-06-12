@@ -155,7 +155,7 @@ func (s *Service) start() {
 
 	r.Handle("/api/v1/scrapping/graph/query", middlewares.Auth(srv, s.getConf().CheckAuth))
 
-	r.Handle("/api/v1/scrapping/graph/playground", playground.AltairHandler("GraphQL Scrapping Playground", "/api/v1/scrapping/graph/query"))
+	r.Handle("/api/v1/scrapping/graph/playground", playground.AltairHandler("GraphQL Scrapping Playground", "/api/v1/scrapping/graph/query", nil))
 
 	r.Handle("/metrics", promhttp.Handler())
 
@@ -239,10 +239,12 @@ func (s *Service) scrap() {
 				defer wg.Done()
 				article, err := s.getArticle(i)
 				if err != nil {
-					log.Info().Str("module", s.Name).Msgf("getArticle error: %v, url: %v", err, i)
+					log.Error().Str("module", s.Name).Msgf("getArticle error: %v, url: %v", err, i)
 					return
 				}
-				result <- article
+				if article != nil {
+					result <- article
+				}
 			}(i)
 		}
 	}()
@@ -264,6 +266,19 @@ func (s *Service) scrap() {
 			log.Error().Str("module", s.Name).Msgf("error in repo: %v", err)
 			continue
 		}
+
+		// Get keywords from the keyword extraction service
+		keywords, err := s.getKeywordsFromService(article.Id)
+		if err != nil {
+			log.Error().Str("module", s.Name).Msgf("failed to get keywords: %v", err)
+			continue
+		}
+
+		if err := s.repo.AddKeywords(s.ctx, article.Id, keywords); err != nil {
+			log.Error().Str("module", s.Name).Msgf("save keywords error: %v", err)
+			continue
+		}
+
 		s.kafka.SendAsyncMessage(json.RawMessage(fmt.Sprintf(`{"id":%v}`, article.Id)))
 	}
 }
@@ -349,14 +364,16 @@ func (s *Service) getArticle(id int64) (*external.Article, error) {
 		}
 	})
 
-	return &external.Article{
+	article := &external.Article{
 		Id:          id,
 		Name:        name,
 		Text:        text,
 		Complexity:  complexity,
 		ReadingTime: readingTime,
 		Tags:        tags,
-	}, nil
+	}
+
+	return article, nil
 }
 
 func mapArticle(article *external.Article) (*repository.Article, error) {
@@ -448,4 +465,26 @@ func checkHealth(w http.ResponseWriter, r *http.Request) {
 	// Простая проверка здоровья, отвечаем статусом 200
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("OK"))
+}
+
+func (s *Service) getKeywordsFromService(articleId int64) ([]string, error) {
+	url := fmt.Sprintf("http://keyword-extraction:8000/extract_keywords_by_id/%d", articleId)
+	resp, err := s.client.Get(url)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get keywords from service: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("keyword service returned non-200 status: %d", resp.StatusCode)
+	}
+
+	var result struct {
+		Keywords []string `json:"keywords"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode keywords response: %v", err)
+	}
+
+	return result.Keywords, nil
 }
