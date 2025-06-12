@@ -22,6 +22,7 @@ type ArticleInfo {
     tags: [String!]!
     likes: Int!
     likedByUser: Boolean!
+    keywords: [String!]!
 }
 
 type ArticlesPagination {
@@ -47,4 +48,10 @@ type UnlikePayload {
 enum Status {
     SUCCESS
     FAIL
+}
+
+type Keyword {
+    id: Int!
+    articleId: Int!
+    keyword: String!
 }

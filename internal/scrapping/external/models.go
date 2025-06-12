@@ -9,6 +9,7 @@ type ArticleInfo struct {
 	Tags        []string `json:"tags"`
 	Likes       int      `json:"likes"`
 	LikedByUser bool     `json:"likedByUser"`
+	Keywords    []string `json:"keywords"`
 }
 
 type PaginationInfo struct {

@@ -98,13 +98,20 @@ func (r *Repository) GetArticlesInfo(ctx context.Context, userId int, cursor *Cu
 			SELECT article_id, COUNT(*) AS like_count
 			FROM scrapping.likes
 			GROUP BY article_id
+		),
+		article_keywords AS (
+			SELECT article_id, array_to_string(array_agg(keyword), ',') as keywords
+			FROM scrapping.keywords
+			GROUP BY article_id
 		)
 		SELECT a.id, a.name, a.text, a.complexity, a.reading_time, a.tags,
 			   COALESCE(al.like_count, 0) AS like_count,
-			   CASE WHEN la.article_id IS NOT NULL THEN true ELSE false END AS liked_by_user
+			   CASE WHEN la.article_id IS NOT NULL THEN true ELSE false END AS liked_by_user,
+			   COALESCE(ak.keywords, '') as keywords
 		FROM scrapping.articles a
 		LEFT JOIN article_likes al ON a.id = al.article_id
 		LEFT JOIN liked_articles la ON a.id = la.article_id
+		LEFT JOIN article_keywords ak ON a.id = ak.article_id
 		ORDER BY a.id
 		%s;
     `
@@ -121,6 +128,7 @@ func (r *Repository) GetArticlesInfo(ctx context.Context, userId int, cursor *Cu
 		}
 		return nil, nil, fmt.Errorf("error in db: %v", err)
 	}
+
 	hasNextPage := false
 	if len(result) > cursor.limit() {
 		hasNextPage = true
@@ -143,13 +151,20 @@ func (r *Repository) GetArticleInfoById(ctx context.Context, userId, articleId i
 			SELECT article_id, COUNT(*) AS like_count
 			FROM scrapping.likes
 			GROUP BY article_id
+		),
+		article_keywords AS (
+			SELECT article_id, array_to_string(array_agg(keyword), ',') as keywords
+			FROM scrapping.keywords
+			GROUP BY article_id
 		)
 		SELECT a.id, a.name, a.text, a.complexity, a.reading_time, a.tags,
 			   COALESCE(al.like_count, 0) AS like_count,
-			   CASE WHEN la.article_id IS NOT NULL THEN true ELSE false END AS liked_by_user
+			   CASE WHEN la.article_id IS NOT NULL THEN true ELSE false END AS liked_by_user,
+			   COALESCE(ak.keywords, '') as keywords
 		FROM scrapping.articles a
 		LEFT JOIN article_likes al ON a.id = al.article_id
 		LEFT JOIN liked_articles la ON a.id = la.article_id
+		LEFT JOIN article_keywords ak ON a.id = ak.article_id
 		WHERE id = $2
 		ORDER BY a.id;
     `
@@ -162,6 +177,7 @@ func (r *Repository) GetArticleInfoById(ctx context.Context, userId, articleId i
 		}
 		return nil, fmt.Errorf("db error: %v", err)
 	}
+
 	return &article, nil
 }
 
@@ -211,70 +227,123 @@ func (r *Repository) GetArticlesByIds(ctx context.Context, userId int, ids []int
 			SELECT article_id, COUNT(*) AS like_count
 			FROM scrapping.likes
 			GROUP BY article_id
+		),
+		article_keywords AS (
+			SELECT article_id, array_to_string(array_agg(keyword), ',') as keywords
+			FROM scrapping.keywords
+			GROUP BY article_id
 		)
 		SELECT a.id, a.name, a.text, a.complexity, a.reading_time, a.tags,
 			   COALESCE(al.like_count, 0) AS like_count,
-			   CASE WHEN la.article_id IS NOT NULL THEN true ELSE false END AS liked_by_user
+			   CASE WHEN la.article_id IS NOT NULL THEN true ELSE false END AS liked_by_user,
+			   COALESCE(ak.keywords, '') as keywords
 		FROM scrapping.articles a
 		LEFT JOIN article_likes al ON a.id = al.article_id
 		LEFT JOIN liked_articles la ON a.id = la.article_id
-		WHERE id = ANY($2)
+		LEFT JOIN article_keywords ak ON a.id = ak.article_id
+		WHERE a.id = ANY($2)
 		ORDER BY a.id;
     `
 
 	var articles []*ArticleInfo
-
 	err := r.db.SelectContext(ctx, &articles, query, userId, pq.Array(ids))
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, errNotFound
 		}
-		return nil, err
+		return nil, fmt.Errorf("db error: %v", err)
 	}
 
 	return articles, nil
 }
 
 func (r *Repository) Search(ctx context.Context, userId int, search string, pageSize int) ([]*ArticleInfo, error) {
-	query := `WITH 
-    	liked_articles AS (SELECT article_id
-							FROM scrapping.likes
-							WHERE user_id = $1),
-		article_likes AS (SELECT article_id, COUNT(*) AS like_count
-						   FROM scrapping.likes
-						   GROUP BY article_id),
-		ids as (SELECT id
-				 FROM scrapping.articles
-						  LEFT JOIN scrapping.article_vectors
-									ON scrapping.articles.id = scrapping.article_vectors.article_id
-				 WHERE text_tsvector @@ plainto_tsquery($2)
-				 limit 20)
-	SELECT a.id,
-		   a.name,
-		   a.text,
-		   a.complexity,
-		   a.reading_time,
-		   a.tags,
-		   COALESCE(al.like_count, 0)                                   AS like_count,
-		   CASE WHEN la.article_id IS NOT NULL THEN true ELSE false END AS liked_by_user
-	FROM scrapping.articles a
-			 LEFT JOIN article_likes al ON a.id = al.article_id
-			 LEFT JOIN liked_articles la ON a.id = la.article_id
-			 LEFT JOIN scrapping.article_vectors av ON a.id = av.article_id
-	WHERE id = ANY (SELECT id from ids)
-	ORDER BY ts_rank(av.text_tsvector, plainto_tsquery($2)) DESC
-	LIMIT $3`
+	query := `
+		WITH liked_articles AS (
+			SELECT article_id
+			FROM scrapping.likes
+			WHERE user_id = $1
+		),
+		article_likes AS (
+			SELECT article_id, COUNT(*) AS like_count
+			FROM scrapping.likes
+			GROUP BY article_id
+		),
+		article_keywords AS (
+			SELECT article_id, array_to_string(array_agg(keyword), ',') as keywords
+			FROM scrapping.keywords
+			GROUP BY article_id
+		)
+		SELECT a.id, a.name, a.text, a.complexity, a.reading_time, a.tags,
+			   COALESCE(al.like_count, 0) AS like_count,
+			   CASE WHEN la.article_id IS NOT NULL THEN true ELSE false END AS liked_by_user,
+			   COALESCE(ak.keywords, '') as keywords
+		FROM scrapping.articles a
+		LEFT JOIN article_likes al ON a.id = al.article_id
+		LEFT JOIN liked_articles la ON a.id = la.article_id
+		LEFT JOIN article_keywords ak ON a.id = ak.article_id
+		WHERE a.name ILIKE $2 OR a.text ILIKE $2
+		ORDER BY a.id
+		LIMIT $3;
+    `
 
-	articles := make([]*ArticleInfo, 0)
-
-	err := r.db.SelectContext(ctx, &articles, query, userId, search, pageSize)
+	var articles []*ArticleInfo
+	err := r.db.SelectContext(ctx, &articles, query, userId, "%"+search+"%", pageSize)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, nil
+			return nil, errNotFound
 		}
-		return nil, err
+		return nil, fmt.Errorf("db error: %v", err)
 	}
 
 	return articles, nil
+}
 
+func (r *Repository) AddKeywords(ctx context.Context, articleId int64, keywords []string) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin transaction error: %v", err)
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.PrepareContext(ctx, `INSERT INTO scrapping.keywords 
+		(article_id, keyword)
+		VALUES ($1, $2)`)
+	if err != nil {
+		return fmt.Errorf("prepare statement error: %v", err)
+	}
+	defer stmt.Close()
+
+	for _, keyword := range keywords {
+		_, err = stmt.ExecContext(ctx, articleId, keyword)
+		if err != nil {
+			return fmt.Errorf("insert keyword error: %v", err)
+		}
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		return fmt.Errorf("commit transaction error: %v", err)
+	}
+
+	return nil
+}
+
+func (r *Repository) GetKeywordsByArticleId(ctx context.Context, articleId int64) ([]string, error) {
+	query := `
+		SELECT keyword
+		FROM scrapping.keywords
+		WHERE article_id = $1
+		ORDER BY keyword;
+	`
+
+	var keywords []string
+	err := r.db.SelectContext(ctx, &keywords, query, articleId)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, errNotFound
+		}
+		return nil, fmt.Errorf("db error: %v", err)
+	}
+	return keywords, nil
 }
