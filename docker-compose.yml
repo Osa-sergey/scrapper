@@ -52,24 +52,35 @@ services:
       KAFKA_CREATE_TOPICS: "scrapping:1:1"
 
   scrapping:
-#    profiles:
-#      - donotstart
-#    image: drc0de/scrapping:1.0.0
+    image: drc0de/scrapping:1.0.0
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: scrapping
+    ports:
+      - "9003:9003"
     environment:
       - TZ = 'Europe/Moscow'
+    volumes:
+      - ./config/config.yaml:/app/config/config.yaml
     depends_on:
       kafka:
         condition: service_healthy
-      pgdb:
+      keyword-extraction:
         condition: service_started
-    volumes:
-      - ./config/config.yaml:/app/config/config.yaml
+    networks:
+      - default
+
+  keyword-extraction:
+    build:
+      context: .
+      dockerfile: Dockerfile.keywords
     ports:
-      - "9003:9003"
+      - "8000:8000"
+    environment:
+      - GRAPHQL_URL=http://scrapping:9003/api/v1/scrapping/graph/query
+      - USER_ID=1
+    networks:
+      - default
 
   prometheus:
     image: prom/prometheus
@@ -86,6 +97,20 @@ services:
     container_name: grafana
     ports:
       - "3000:3000"
+
+  ui:
+    build:
+      context: ./ui
+      dockerfile: Dockerfile
+    container_name: ml_roadmap_ui
+    ports:
+      - "8501:8501"
+    environment:
+      - TZ=Europe/Moscow
+      - GRAPHQL_URL=http://scrapping:9003/api/v1/scrapping/graph/query
+      - USER_ID=1
+    networks:
+      - default
 
 networks:
   default:

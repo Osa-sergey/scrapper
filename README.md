@@ -33,6 +33,52 @@
 
   Здесь вы можете писать и тестировать свои запросы в интерактивной среде.
 
+```bash
+query {
+  articles(page: 1, pageSize: 1) {
+    items {
+      id
+      name
+      text
+      complexity
+      readingTime
+      tags
+      likes
+      likedByUser
+    }
+    pageInfo {
+      page
+      pageSize
+      hasNextPage
+      hasPreviousPage
+    }
+  }
+}
+```
+
+917770, 917724, 917740
+
+```bash
+query {
+  article(id: 917770) {
+    id
+    name
+    text
+    complexity
+    readingTime
+    tags
+    likes
+    likedByUser
+  }
+}
+```
+
+```python
+from sentence_transformers import SentenceTransformer
+model = SentenceTransformer('cointegrated/rubert-tiny2')
+model.save('local_rubert_model')
+```
+
 ### REST API
 
 - Получение статьи по ID:
