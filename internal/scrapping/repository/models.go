@@ -3,6 +3,7 @@ package repository
 import (
 	"database/sql"
 	"encoding/json"
+	"strings"
 )
 
 type Article struct {
@@ -23,4 +24,18 @@ type ArticleInfo struct {
 	Tags        json.RawMessage `db:"tags"`
 	LikeCount   int             `db:"like_count"`
 	LikedByUser bool            `db:"liked_by_user"`
+	Keywords    string          `db:"keywords"`
+}
+
+func (a *ArticleInfo) GetKeywords() []string {
+	if a.Keywords == "" {
+		return []string{}
+	}
+	return strings.Split(a.Keywords, ",")
+}
+
+type Keyword struct {
+	ID        int64  `db:"id"`
+	ArticleID int64  `db:"article_id"`
+	Keyword   string `db:"keyword"`
 }
