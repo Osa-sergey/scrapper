@@ -73,6 +73,12 @@ query {
 }
 ```
 
+```python
+from sentence_transformers import SentenceTransformer
+model = SentenceTransformer('cointegrated/rubert-tiny2')
+model.save('local_rubert_model')
+```
+
 ### REST API
 
 - Получение статьи по ID:

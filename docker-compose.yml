@@ -107,6 +107,8 @@ services:
       - "8501:8501"
     environment:
       - TZ=Europe/Moscow
+      - GRAPHQL_URL=http://scrapping:9003/api/v1/scrapping/graph/query
+      - USER_ID=1
     networks:
       - default
 
