@@ -98,6 +98,18 @@ services:
     ports:
       - "3000:3000"
 
+  ui:
+    build:
+      context: ./ui
+      dockerfile: Dockerfile
+    container_name: ml_roadmap_ui
+    ports:
+      - "8501:8501"
+    environment:
+      - TZ=Europe/Moscow
+    networks:
+      - default
+
 networks:
   default:
     driver: bridge
